@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<!-- viewport-fit=cover so we can push under the notch / hide chrome on iOS -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#07060a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="mobile-web-app-capable" content="yes" />
+<title>NINJA PAD</title>
+<style>
+  :root {
+    --bg: #07060a;
+    --dim: #6b6675;
+    --green: #37f19a;
+    --amber: #ffb02e;
+    --red: #ff3b57;
+    /* Heavy system-UI stack, no CDN fonts. */
+    --display: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+               "Arial Black", Roboto, system-ui, sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    color: #fff;
+    font-family: var(--display);
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+
+  /* Fill the visual viewport including under the notch. */
+  body {
+    position: fixed;
+    inset: 0;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* The whole screen is the weapon. */
+  #surface {
+    position: absolute;
+    inset: 0;
+    touch-action: none;
+    background:
+      radial-gradient(120% 90% at 50% 8%, #17121f 0%, #0a0810 55%, #050409 100%);
+    overflow: hidden;
+  }
+
+  /* subtle grid so the surface reads as "hardware" */
+  #surface::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(120% 100% at 50% 40%, #000 30%, transparent 92%);
+    -webkit-mask-image: radial-gradient(120% 100% at 50% 40%, #000 30%, transparent 92%);
+    pointer-events: none;
+  }
+
+  #trail {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  /* Center hint, fades once you start slicing. */
+  #hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    pointer-events: none;
+    transition: opacity .5s ease;
+    text-align: center;
+  }
+  #hint .mark {
+    font-size: clamp(28px, 7vw, 60px);
+    font-weight: 900;
+    letter-spacing: .38em;
+    text-indent: .38em;
+    color: #fff;
+    opacity: .16;
+  }
+  #hint .sub {
+    font-size: clamp(11px, 2.4vw, 15px);
+    font-weight: 700;
+    letter-spacing: .34em;
+    text-indent: .34em;
+    text-transform: uppercase;
+    color: var(--dim);
+    opacity: .7;
+  }
+
+  /* ---- status bar ---- */
+  #status {
+    position: absolute;
+    top: calc(env(safe-area-inset-top) + 10px);
+    left: calc(env(safe-area-inset-left) + 14px);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    pointer-events: none;
+    z-index: 5;
+  }
+  #dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 10px 1px currentColor;
+    color: var(--red);
+    transition: color .25s, background .25s;
+  }
+  #dot.ok    { background: var(--green); color: var(--green); }
+  #dot.warn  { background: var(--amber); color: var(--amber);
+               animation: pulse 1s ease-in-out infinite; }
+  #dot.bad   { background: var(--red);   color: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  #state {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  #ping {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* wordmark, top-right */
+  #wordmark {
+    position: absolute;
+    top: calc(env(safe-area-inset-top) + 11px);
+    right: calc(env(safe-area-inset-right) + 16px);
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: .34em;
+    text-indent: .34em;
+    color: rgba(255,255,255,.28);
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* ---- rotate overlay (portrait) ---- */
+  #rotate {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    background: #050409;
+    z-index: 50;
+    text-align: center;
+    padding: 30px;
+  }
+  #rotate .glyph {
+    width: 68px;
+    height: 108px;
+    border: 3px solid #fff;
+    border-radius: 14px;
+    opacity: .85;
+    animation: rot 2.2s ease-in-out infinite;
+  }
+  @keyframes rot {
+    0%,40%   { transform: rotate(0deg); }
+    60%,100% { transform: rotate(-90deg); }
+  }
+  #rotate .t {
+    font-size: 18px;
+    font-weight: 900;
+    letter-spacing: .3em;
+    text-indent: .3em;
+    text-transform: uppercase;
+  }
+  #rotate .s {
+    font-size: 12px;
+    letter-spacing: .16em;
+    color: var(--dim);
+    text-transform: uppercase;
+  }
+
+  /* show rotate overlay only in portrait */
+  @media (orientation: portrait) {
+    #rotate { display: flex; }
+  }
+</style>
+</head>
+<body>
+  <div id="surface">
+    <canvas id="trail"></canvas>
+    <div id="hint">
+      <div class="mark">NINJA&nbsp;PAD</div>
+      <div class="sub">swipe anywhere to slice</div>
+    </div>
+  </div>
+
+  <div id="status">
+    <span id="dot" class="bad"></span>
+    <span id="state">OFFLINE</span>
+    <span id="ping">-- ms</span>
+  </div>
+  <div id="wordmark">NINJA&nbsp;PAD</div>
+
+  <div id="rotate">
+    <div class="glyph"></div>
+    <div class="t">Rotate your phone</div>
+    <div class="s">Landscape mode &mdash; hold it like a blade</div>
+  </div>
+
+<script>
+"use strict";
+(function () {
+  // ---------------------------------------------------------------- elements
+  const surface = document.getElementById("surface");
+  const canvas  = document.getElementById("trail");
+  const ctx     = canvas.getContext("2d");
+  const dot     = document.getElementById("dot");
+  const stateEl = document.getElementById("state");
+  const pingEl  = document.getElementById("ping");
+  const hint    = document.getElementById("hint");
+
+  // ---------------------------------------------------------------- canvas
+  let dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2.5));
+  function resize() {
+    dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2.5));
+    const w = surface.clientWidth, h = surface.clientHeight;
+    canvas.width  = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width  = w + "px";
+    canvas.style.height = h + "px";
+  }
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", () => setTimeout(resize, 200));
+  resize();
+
+  // ---------------------------------------------------------------- websocket
+  const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") +
+                 location.host + "/ws";
+  let ws = null;
+  let connected = false;
+  let backoff = 500;              // 0.5s -> 4s cap
+  const BACKOFF_MAX = 4000;
+  let reconnectTimer = null;
+
+  function setStatus(cls, text) {
+    dot.className = cls;
+    stateEl.textContent = text;
+  }
+
+  function connect() {
+    clearTimeout(reconnectTimer);
+    try {
+      ws = new WebSocket(WS_URL);
+    } catch (e) {
+      scheduleReconnect();
+      return;
+    }
+    setStatus("warn", "CONNECTING");
+
+    ws.onopen = function () {
+      connected = true;
+      backoff = 500;
+      setStatus("ok", "CONNECTED");
+      // If a finger is already down when we (re)connect, re-assert it.
+      if (activePointer !== null) {
+        send({ type: "down" });
+        sendMove(true);
+      }
+    };
+
+    ws.onclose = function () {
+      connected = false;
+      setStatus("warn", "RECONNECTING");
+      pingEl.textContent = "-- ms";
+      scheduleReconnect();
+    };
+
+    ws.onerror = function () {
+      // onclose will follow and handle reconnect.
+      try { ws.close(); } catch (e) {}
+    };
+
+    ws.onmessage = function (ev) {
+      let m;
+      try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.type === "pong" && typeof m.t === "number") {
+        const rtt = Math.max(0, Math.round(performance.now() - m.t));
+        pingEl.textContent = rtt + " ms";
+      }
+    };
+  }
+
+  function scheduleReconnect() {
+    setStatus("warn", "RECONNECTING");
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, backoff);
+    backoff = Math.min(BACKOFF_MAX, Math.round(backoff * 1.7));
+  }
+
+  function send(obj) {
+    if (ws && connected && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify(obj)); } catch (e) {}
+    }
+  }
+
+  // ping every 2s for latency
+  setInterval(function () {
+    if (connected) send({ type: "ping", t: performance.now() });
+  }, 2000);
+
+  connect();
+
+  // ---------------------------------------------------------------- pointer
+  // Absolute trackpad: phone surface maps 1:1 to laptop screen.
+  let activePointer = null;      // current pointerId, or null
+  let curNX = 0, curNY = 0;      // latest normalized position (0..1)
+  let lastSentNX = -1, lastSentNY = -1;
+  let moveDirty = false;
+
+  function normalize(clientX, clientY) {
+    const r = surface.getBoundingClientRect();
+    let x = (clientX - r.left) / r.width;
+    let y = (clientY - r.top) / r.height;
+    x = x < 0 ? 0 : x > 1 ? 1 : x;
+    y = y < 0 ? 0 : y > 1 ? 1 : y;
+    return [x, y];
+  }
+
+  function sendMove(force) {
+    if (force || curNX !== lastSentNX || curNY !== lastSentNY) {
+      send({ type: "move", x: curNX, y: curNY });
+      lastSentNX = curNX;
+      lastSentNY = curNY;
+    }
+    moveDirty = false;
+  }
+
+  function addTrailPoint(clientX, clientY) {
+    const r = surface.getBoundingClientRect();
+    trail.push({
+      x: (clientX - r.left) * dpr,
+      y: (clientY - r.top) * dpr,
+      t: performance.now(),
+    });
+    if (trail.length > 240) trail.shift();
+  }
+
+  function onDown(e) {
+    // Only track one finger (single blade). First one wins.
+    if (activePointer !== null) return;
+    activePointer = e.pointerId;
+    try { surface.setPointerCapture(e.pointerId); } catch (err) {}
+    hint.style.opacity = "0";
+
+    const [nx, ny] = normalize(e.clientX, e.clientY);
+    curNX = nx; curNY = ny;
+
+    // On press: send down, then a move to that exact spot.
+    send({ type: "down" });
+    sendMove(true);
+    addTrailPoint(e.clientX, e.clientY);
+
+    e.preventDefault();
+    ensureImmersive();
+  }
+
+  function onMove(e) {
+    if (e.pointerId !== activePointer) return;
+
+    // Use coalesced events for a smooth trail on fast swipes.
+    const events = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+    if (events && events.length) {
+      for (const ce of events) addTrailPoint(ce.clientX, ce.clientY);
+    } else {
+      addTrailPoint(e.clientX, e.clientY);
+    }
+
+    const [nx, ny] = normalize(e.clientX, e.clientY);
+    curNX = nx; curNY = ny;
+    moveDirty = true;          // actual send is throttled in the rAF loop (~60Hz)
+
+    e.preventDefault();
+  }
+
+  function onUp(e) {
+    if (e.pointerId !== activePointer) return;
+    activePointer = null;
+    try { surface.releasePointerCapture(e.pointerId); } catch (err) {}
+    // Flush final position then release.
+    if (moveDirty) sendMove(false);
+    send({ type: "up" });
+    e.preventDefault();
+  }
+
+  surface.addEventListener("pointerdown", onDown, { passive: false });
+  surface.addEventListener("pointermove", onMove, { passive: false });
+  surface.addEventListener("pointerup", onUp, { passive: false });
+  // iOS/system can steal the gesture -> pointercancel. Treat exactly like up.
+  surface.addEventListener("pointercancel", onUp, { passive: false });
+
+  // Belt-and-suspenders: kill any stray touch gestures/scroll/zoom.
+  ["touchstart", "touchmove", "touchend", "gesturestart", "gesturechange",
+   "dblclick", "contextmenu"].forEach(function (t) {
+    surface.addEventListener(t, function (e) { e.preventDefault(); },
+                             { passive: false });
+  });
+  document.addEventListener("touchmove", function (e) { e.preventDefault(); },
+                            { passive: false });
+
+  // ---------------------------------------------------------------- trail draw
+  const TRAIL_MS = 400;
+  const trail = [];
+
+  function render() {
+    // Throttled move send, ~60Hz, only when the position actually changed.
+    if (moveDirty) sendMove(false);
+
+    const now = performance.now();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // prune old points
+    while (trail.length && now - trail[0].t > TRAIL_MS) trail.shift();
+
+    if (trail.length >= 2) {
+      ctx.globalCompositeOperation = "lighter"; // additive glow
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      for (let i = 1; i < trail.length; i++) {
+        const p0 = trail[i - 1], p1 = trail[i];
+        const age = now - p1.t;
+        if (age > TRAIL_MS) continue;
+        const a = 1 - age / TRAIL_MS;          // 1 = fresh, 0 = gone
+        const grow = a * dpr;
+
+        // outer magenta bloom
+        ctx.strokeStyle = "rgba(255,40,150," + (0.18 * a).toFixed(3) + ")";
+        ctx.lineWidth = (30 * a + 8) * dpr;
+        stroke(p0, p1);
+
+        // orange body (blade heat)
+        ctx.strokeStyle = "rgba(255,130,40," + (0.42 * a).toFixed(3) + ")";
+        ctx.lineWidth = (15 * a + 4) * dpr;
+        stroke(p0, p1);
+
+        // hot white core
+        ctx.strokeStyle = "rgba(255,255,255," + (0.9 * a).toFixed(3) + ")";
+        ctx.lineWidth = (4 * a + 1.5) * dpr;
+        stroke(p0, p1);
+      }
+      ctx.globalCompositeOperation = "source-over";
+    }
+    requestAnimationFrame(render);
+  }
+  function stroke(p0, p1) {
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+  }
+  requestAnimationFrame(render);
+
+  // ---------------------------------------------------------------- immersive
+  let wakeLock = null;
+  async function acquireWakeLock() {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", function () { wakeLock = null; });
+      }
+    } catch (e) { /* ignore -- unsupported or denied */ }
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") acquireWakeLock();
+  });
+
+  let triedFullscreen = false;
+  function ensureImmersive() {
+    // Fullscreen where supported (Android Chrome). iOS Safari lacks it -> we
+    // rely on viewport-fit=cover + web-app meta tags instead.
+    if (!triedFullscreen) {
+      triedFullscreen = true;
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req) { try { req.call(el).catch(function () {}); } catch (e) {} }
+      // nudge iOS to hide the address bar
+      setTimeout(function () { window.scrollTo(0, 1); }, 50);
+    }
+    acquireWakeLock();
+  }
+  // First tap anywhere also arms immersive mode.
+  window.addEventListener("pointerdown", ensureimmersiveOnce, { once: true });
+  function ensureimmersiveOnce() { ensureImmersive(); }
+})();
+</script>
+</body>
+</html>
