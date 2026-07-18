@@ -6,12 +6,14 @@ swiping on your phone. The phone screen maps **1:1** to the laptop screen —
 touch the top-right of the phone, the cursor jumps to the top-right of the
 laptop.
 
-Two pieces:
+Pieces:
 
-- **`server.py`** — runs on the laptop (aiohttp HTTP + WebSocket on one port,
-  drives the mouse with pyautogui).
-- **`controller.html`** — a single self-contained page served to the phone. No
-  build step, no CDNs, works fully offline on your LAN.
+- **`server.py`** — the one thing you run. aiohttp HTTP + WebSocket on one port,
+  drives the mouse with pyautogui, and orchestrates the whole flow below.
+- **`host.html`** — the laptop page (auto-opened): a big QR code, and the game.
+- **`game.html`** — the actual Fruit Ninja game (canvas, physics, bombs, combos).
+- **`controller.html`** — the self-contained page served to the phone. No build
+  step, no CDNs, works fully offline on your LAN.
 
 Both devices must be on the **same Wi-Fi network**.
 
@@ -28,24 +30,30 @@ python -m pip install aiohttp pyautogui qrcode
 
 ## Run
 
-1. On the laptop:
+Just this, on the laptop:
 
-   ```
-   python server.py
-   ```
+```
+python server.py
+```
 
-2. The terminal prints the controller URL (e.g. `http://192.168.1.42:8765/`) and
-   an ASCII **QR code**. Scan the QR with your phone's camera, or type the URL
-   into the phone's browser.
+That's the whole setup. It will:
 
-3. **Rotate the phone to landscape.** A "rotate your phone" overlay appears in
-   portrait — landscape is the intended mode.
+1. **Auto-open the game** in your laptop's default browser, showing a big
+   **QR code** on screen (also printed in the terminal as a fallback).
+2. Wait for you to **scan the QR with your phone** (same Wi-Fi). Point your
+   phone camera at it and tap the link.
+3. **Rotate the phone to landscape** — a "rotate your phone" overlay nudges you
+   if you're in portrait.
+4. The instant the phone connects, the laptop flashes **"WELCOME"** and drops
+   you into the game. Swipe on the phone to slice.
 
-4. Open Fruit Ninja (browser version) on the laptop and click into it so it has
-   focus. Swipe on the phone to slice.
+Controls: **swipe** to slice, **press-and-drag** for a continuous slice, **lift**
+to release. Avoid the bombs. Swipe to start / retry — you never need to touch the
+laptop's keyboard or mouse.
 
 The status bar on the phone shows a connection dot (green = connected,
-amber = connecting/reconnecting, red = offline) and the round-trip latency.
+amber = connecting/reconnecting, red = offline) and the round-trip latency. If
+the phone drops mid-game, the laptop brings the QR back so you can rescan.
 
 ## How to play
 

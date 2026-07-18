@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FRUIT NINJA</title>
+<style>
+  :root {
+    --bg: #07060d;
+    --green: #37f19a;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Arial Black",
+            Roboto, system-ui, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: var(--bg); color: #fff; font-family: var(--font);
+    user-select: none; -webkit-user-select: none;
+  }
+
+  /* the game, always loaded, sits behind the overlay */
+  #game {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    border: 0; display: block; background: #0a0a12;
+  }
+
+  /* full-screen lobby overlay */
+  #overlay {
+    position: absolute; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    background:
+      radial-gradient(120% 90% at 50% 0%, #1a1330 0%, #0b0916 55%, #060510 100%);
+    transition: opacity .5s ease;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  #overlay.gone   { display: none; }
+
+  .card {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 26px; text-align: center; padding: 40px;
+  }
+  .title {
+    font-size: clamp(44px, 8vw, 96px);
+    font-weight: 900; letter-spacing: .06em;
+    background: linear-gradient(180deg, #fff 0%, #ffd1e8 45%, #ff5aa0 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 6px 30px rgba(255, 70, 150, .35));
+  }
+  .tagline {
+    font-size: clamp(12px, 1.6vw, 16px);
+    letter-spacing: .34em; text-indent: .34em; text-transform: uppercase;
+    color: #8a8397; margin-top: -14px;
+  }
+
+  .qrwrap {
+    background: #fff; padding: 18px; border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.08);
+  }
+  #qr { display: block; image-rendering: pixelated; border-radius: 6px; }
+  #qr.pending { opacity: .25; }
+
+  .scanline {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 15px; font-weight: 800; letter-spacing: .18em;
+    text-transform: uppercase; color: #fff;
+  }
+  .dot {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: #ffb02e; color: #ffb02e; box-shadow: 0 0 10px currentColor;
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .url {
+    font-size: 13px; letter-spacing: .08em; color: #6f6980;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* WELCOME splash */
+  #welcome {
+    position: absolute; inset: 0; z-index: 20;
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px;
+    background: radial-gradient(60% 60% at 50% 50%,
+                rgba(20,10,35,.6), rgba(6,5,16,.96));
+  }
+  #welcome.show { display: flex; animation: welcomeAnim 1.5s ease forwards; }
+  #welcome .big {
+    font-size: clamp(56px, 12vw, 150px); font-weight: 900; letter-spacing: .04em;
+    background: linear-gradient(180deg, #fff, #ffdf6b 55%, #ff8a3c);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 40px rgba(255,180,60,.5));
+    transform: scale(.7); animation: pop .5s cubic-bezier(.2,1.4,.4,1) forwards;
+  }
+  #welcome .sub {
+    font-size: clamp(14px, 2vw, 22px); font-weight: 800;
+    letter-spacing: .3em; text-indent: .3em; text-transform: uppercase;
+    color: var(--green);
+  }
+  @keyframes pop { to { transform: scale(1); } }
+  @keyframes welcomeAnim {
+    0% { opacity: 0; }
+    12% { opacity: 1; }
+    78% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+  <iframe id="game" src="/game" title="Fruit Ninja"></iframe>
+
+  <div id="overlay">
+    <div class="card">
+      <div>
+        <div class="title">FRUIT NINJA</div>
+        <div class="tagline">phone is the blade</div>
+      </div>
+      <div class="qrwrap">
+        <canvas id="qr" class="pending" width="320" height="320"></canvas>
+      </div>
+      <div>
+        <div class="scanline" id="scanline">
+          <span class="dot"></span><span id="scantext">Scan with your phone</span>
+        </div>
+        <div class="url" id="url">&nbsp;</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="welcome">
+    <div class="big">WELCOME</div>
+    <div class="sub">grab the blade &mdash; slice!</div>
+  </div>
+
+<script>
+"use strict";
+(function () {
+  const overlay  = document.getElementById("overlay");
+  const welcome  = document.getElementById("welcome");
+  const qrCanvas = document.getElementById("qr");
+  const qtx      = qrCanvas.getContext("2d");
+  const urlEl    = document.getElementById("url");
+  const scanText = document.getElementById("scantext");
+  const gameFrame = document.getElementById("game");
+
+  let started = false;   // has the phone ever connected in this session?
+
+  // ---- draw the QR from the server-provided matrix ----
+  function drawQR(matrix) {
+    const n = matrix.length;
+    const size = qrCanvas.width;
+    const mod = Math.floor(size / n);
+    const pad = Math.floor((size - mod * n) / 2);
+    qtx.fillStyle = "#fff";
+    qtx.fillRect(0, 0, size, size);
+    qtx.fillStyle = "#0a0a12";
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        if (matrix[y][x]) {
+          qtx.fillRect(pad + x * mod, pad + y * mod, mod, mod);
+        }
+      }
+    }
+    qrCanvas.classList.remove("pending");
+  }
+
+  fetch("/api/info")
+    .then(r => r.json())
+    .then(info => {
+      urlEl.textContent = info.url;
+      if (info.matrix) drawQR(info.matrix);
+    })
+    .catch(() => { urlEl.textContent = "could not load server info"; });
+
+  // ---- overlay state transitions ----
+  function showWelcomeThenPlay() {
+    welcome.classList.add("show");
+    // hide the lobby underneath while the splash plays
+    overlay.classList.add("hidden");
+    setTimeout(() => overlay.classList.add("gone"), 500);
+    setTimeout(() => {
+      welcome.classList.remove("show");
+      // hand focus/input to the game frame
+      try { gameFrame.contentWindow.focus(); } catch (e) {}
+    }, 1500);
+  }
+
+  function revealGame() {
+    overlay.classList.add("hidden");
+    setTimeout(() => overlay.classList.add("gone"), 500);
+    try { gameFrame.contentWindow.focus(); } catch (e) {}
+  }
+
+  function showLobby(reconnect) {
+    overlay.classList.remove("gone");
+    // force reflow so the opacity transition runs
+    void overlay.offsetWidth;
+    overlay.classList.remove("hidden");
+    scanText.textContent = reconnect ? "Phone disconnected — rescan" : "Scan with your phone";
+  }
+
+  function onControllerConnected() {
+    if (!started) {
+      started = true;
+      showWelcomeThenPlay();
+    } else {
+      revealGame(); // returning after a drop
+    }
+  }
+
+  function onControllerDisconnected() {
+    if (started) showLobby(true);
+  }
+
+  // ---- display websocket: server tells us when the phone joins/leaves ----
+  let ws = null, backoff = 500;
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss://" : "ws://";
+    ws = new WebSocket(proto + location.host + "/ws?role=display");
+    ws.onopen = () => { backoff = 500; };
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.type === "controller") {
+        if (m.connected) onControllerConnected();
+        else onControllerDisconnected();
+      }
+    };
+    ws.onclose = () => {
+      setTimeout(connect, backoff);
+      backoff = Math.min(4000, Math.round(backoff * 1.7));
+    };
+    ws.onerror = () => { try { ws.close(); } catch (e) {} };
+  }
+  connect();
+})();
+</script>
+</body>
+</html>
